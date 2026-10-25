@@ -5,6 +5,7 @@
 #   ./setup.sh                 install or reconfigure (interactive)
 #   ./setup.sh update          pull latest code (git) and rebuild, keeping all data
 #   ./setup.sh status          containers, health and URL
+#   ./setup.sh doctor          explain why the site or HTTPS isn't reachable
 #   ./setup.sh logs            follow the logs
 #   ./setup.sh backup          archive data volume + .env into ./backups
 #   ./setup.sh restart|stop|start
@@ -52,7 +53,7 @@ ADMIN_PW_ARG=''
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    install|update|status|logs|backup|restart|stop|start|uninstall|help) CMD=$1 ;;
+    install|update|status|doctor|logs|backup|restart|stop|start|uninstall|help) CMD=$1 ;;
     -y|--yes) ASSUME_YES=1 ;;
     --mode) MODE_ARG=${2:-}; shift ;;
     --domain) DOMAIN_ARG=${2:-}; shift ;;
@@ -415,16 +416,14 @@ check_public() {
       sleep 3
     done
     warn "Couldn't reach $url from the internet yet."
-    warn "Most likely the AWS Security Group doesn't allow inbound TCP 80 and 443 from 0.0.0.0/0."
-    warn "EC2 → Instances → your instance → Security → Security groups → Edit inbound rules."
-    dc logs --tail 15 caddy >&2 || true
+    diagnose_https
   else
     for _ in $(seq 1 5); do
       if curl -fsS -m 5 "$url/healthz" 2>/dev/null | grep -q ok; then ok "Reachable: $url"; return 0; fi
       sleep 2
     done
     warn "Couldn't reach $url from the internet."
-    warn "Allow inbound TCP $(env_get APP_PORT) in the AWS Security Group (EC2 → Security groups → Edit inbound rules)."
+    aws_firewall_hint "$(env_get APP_PORT | sed 's/.*://')"
   fi
 }
 
@@ -445,6 +444,85 @@ summary() {
 }
 
 # ---------------------------------------------------------------- commands
+aws_firewall_hint() {  # $* = ports that must be open
+  local ports="$*"
+  warn "Inbound TCP ${ports// /, } must be allowed in BOTH AWS firewalls:"
+  printf '    %s\n' \
+    "1. Security group:  EC2 → Instances → this instance → Security tab → security group → Edit inbound rules" \
+    "     add HTTP 80 and HTTPS 443, source 0.0.0.0/0" \
+    "2. Network ACL:     VPC → Network ACLs → the ACL of this instance's subnet" \
+    "     Inbound:  allow 80 and 443 (e.g. rules 120 and 130), source 0.0.0.0/0" \
+    "     Outbound: allow All traffic (or at least TCP 1024-65535) to 0.0.0.0/0" >&2
+}
+
+# Explain an HTTPS failure from Caddy's own log.
+diagnose_https() {
+  local log
+  log=$($SUDO docker logs --since 30m clover-x-caddy 2>&1 || true)
+  if grep -q 'certificate obtained successfully' <<<"$log"; then
+    ok "Caddy has a certificate for $(env_get DOMAIN)"
+    return 0
+  fi
+  if grep -qiE 'rateLimited|too many (failed authorizations|certificates|new orders)' <<<"$log"; then
+    warn "Let's Encrypt rate limit: too many failed attempts for $(env_get DOMAIN)."
+    warn "Fix the cause, wait about 1 hour, then run: sudo docker restart clover-x-caddy"
+  fi
+  if grep -qiE 'Timeout during connect|likely firewall' <<<"$log"; then
+    warn "Let's Encrypt can't reach this server (connection timed out) — AWS is blocking the traffic."
+    aws_firewall_hint 80 443
+    warn "After fixing it, run: sudo docker restart clover-x-caddy   (Caddy otherwise waits before retrying)"
+  elif grep -qiE 'Connection refused' <<<"$log"; then
+    warn "Let's Encrypt was refused on port 80/443 — another program may own the port, or the app runs in HTTP mode."
+    warn "Run: sudo ss -ltnp | grep -E ':(80|443) '"
+  elif grep -qiE 'DNS problem|NXDOMAIN|no valid A records' <<<"$log"; then
+    warn "DNS problem: $(env_get DOMAIN) doesn't point at $(env_get CX_PUBLIC_IP). Fix the A record (or use the sslip mode)."
+  elif [[ -n $log ]]; then
+    warn "Caddy hasn't got a certificate yet. Its latest log lines:"
+    tail -n 12 <<<"$log" | sed 's/^/    /' >&2
+  else
+    warn "No Caddy log found — is the HTTPS container running? (./setup.sh status)"
+  fi
+  return 1
+}
+
+cmd_doctor() {
+  banner
+  [[ -f $ENV_FILE ]] || die "Not installed yet — run ./setup.sh first."
+  local mode ip url
+  mode=$(current_mode); ip=$(env_get CX_PUBLIC_IP); url=$(app_url)
+  title "Checking $url"
+
+  if app_healthy; then ok "App is running and healthy"; else warn "App not responding — see ./setup.sh logs"; fi
+
+  local now; now=$(detect_public_ip || true)
+  if [[ -n $now && $now != "$ip" ]]; then
+    warn "This server's public IP is now $now, but setup used $ip. Run ./setup.sh again (answer n to keep, choose the mode again)."
+  else
+    ok "Public IP: $ip"
+  fi
+
+  local ports=(80 443)
+  [[ $mode == http ]] && ports=("$(env_get APP_PORT | sed 's/.*://')")
+  for p in "${ports[@]}"; do
+    if $SUDO ss -Hltn "sport = :$p" 2>/dev/null | grep -q .; then ok "Listening on port $p"; else warn "Nothing is listening on port $p"; fi
+  done
+
+  if curl -fsS -m 5 -o /dev/null "http://$ip:${ports[0]}/healthz" 2>/dev/null || curl -sS -m 5 -o /dev/null "http://$ip:${ports[0]}/" 2>/dev/null; then
+    ok "Port ${ports[0]} is reachable on the public IP"
+  else
+    warn "Port ${ports[0]} is NOT reachable on the public IP $ip."
+    aws_firewall_hint "${ports[@]}"
+  fi
+
+  if [[ $mode != http ]]; then
+    if curl -fsS -m 8 "$url/healthz" 2>/dev/null | grep -q ok; then
+      ok "HTTPS works: $url"
+    else
+      diagnose_https || true
+    fi
+  fi
+}
+
 
 cmd_install() {
   banner
@@ -533,13 +611,14 @@ cmd_uninstall() {
 }
 
 cmd_help() {
-  sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 case "$CMD" in
   install)   cmd_install ;;
   update)    cmd_update ;;
   status)    cmd_status ;;
+  doctor)    cmd_doctor ;;
   logs)      dc --profile https logs -f --tail 100 ;;
   backup)    cmd_backup ;;
   restart)   dc --profile https restart && ok "Restarted" ;;

@@ -1,6 +1,6 @@
 'use strict';
 
-/* Clover-X Personal Management — branded documents (letterhead, document, meeting minutes, envelope, email signature).
+/* Clover-X Personal Management — branded documents (letterhead, document, meeting minutes, envelope, business card, email signature).
    Loaded after app.js and uses its helpers. */
 
 Object.assign(ICON, {
@@ -9,6 +9,7 @@ Object.assign(ICON, {
   minutes: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
   envelope: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
   signature: '<path d="M3 17c3-6 5-9 6.5-9S10 13 12 13s2.5-3 4-3 1 4 2.5 4H21"/><path d="M3 21h18"/>',
+  card: '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2.5"/><path d="M13 10h6M13 14h4"/>',
 });
 
 const DOC_DEFAULTS = {
@@ -20,6 +21,7 @@ const DOC_DEFAULTS = {
   mtActions: [{ t: '', o: '', d: '' }, { t: '', o: '', d: '' }, { t: '', o: '', d: '' }],
   envSize: 'DL', envSender: 'yes', envNote: '', recipientName: '', recipientStreet: '', recipientCity: '', recipientCountry: '',
   sigLogo: 'yes', sigNote: '',
+  cardSize: 'EU', cardLayout: 'single', cardTagline: '',
   lang: 'en',
 };
 
@@ -28,8 +30,15 @@ const DOC_TYPES = [
   { id: 'document', name: 'Document', icon: 'doc' },
   { id: 'minutes', name: 'Meeting minutes', icon: 'minutes' },
   { id: 'envelope', name: 'Envelope', icon: 'envelope' },
+  { id: 'card', name: 'Business card', icon: 'card' },
   { id: 'signature', name: 'Email signature', icon: 'signature' },
 ];
+
+// Business card sizes in CSS px (96 dpi)
+const CARD_SIZES = {
+  EU: { w: 321, h: 208, size: '85mm 55mm', mm: '85 × 55 mm' },
+  US: { w: 336, h: 192, size: '3.5in 2in', mm: '3.5 × 2 in' },
+};
 
 // Envelope sizes in CSS px (96 dpi)
 const ENV_SIZES = {
@@ -44,7 +53,7 @@ const DOC_LABEL = {
   website: 'Website', email: 'Email', phone: 'Phone', name: 'Your name', title: 'Job title', mobile: 'Mobile',
   docTitle: 'Document title', docDate: 'Date', docRef: 'Reference',
   mtTitle: 'Meeting title', mtDate: 'Date', mtTime: 'Time', mtPlace: 'Location', mtChair: 'Name', mtScribe: 'Name', mtNext: 'Date, time and place',
-  envNote: 'Confidential', recipientName: 'Recipient', recipientStreet: 'Street and number', recipientCity: 'Postcode City', recipientCountry: 'Country',
+  cardTagline: 'Tagline', envNote: 'Confidential', recipientName: 'Recipient', recipientStreet: 'Street and number', recipientCity: 'Postcode City', recipientCountry: 'Country',
 };
 
 const DOC_T = {
@@ -67,11 +76,12 @@ const DOC_ROWS = {
 
 // [key, label, fullWidth, type, options]
 const DOC_GROUPS = [
-  { t: 'Company', for: ['letterhead', 'document', 'minutes', 'envelope', 'signature'], open: true, f: [['company', 'Company name', 1], ['legalForm', 'Legal form (Pvt Ltd, GmbH …)'], ['street', 'Street and number', 1], ['zip', 'Postcode'], ['city', 'City'], ['country', 'Country', 1], ['website', 'Website'], ['email', 'Email'], ['phone', 'Phone', 1]] },
-  { t: 'Your details', for: ['document', 'signature'], f: [['name', 'Your name', 1], ['title', 'Job title', 1], ['mobile', 'Mobile', 1]] },
+  { t: 'Company', for: ['letterhead', 'document', 'minutes', 'envelope', 'card', 'signature'], open: true, f: [['company', 'Company name', 1], ['legalForm', 'Legal form (Pvt Ltd, GmbH …)'], ['street', 'Street and number', 1], ['zip', 'Postcode'], ['city', 'City'], ['country', 'Country', 1], ['website', 'Website'], ['email', 'Email'], ['phone', 'Phone', 1]] },
+  { t: 'Your details', for: ['document', 'card', 'signature'], f: [['name', 'Your name', 1], ['title', 'Job title', 1], ['mobile', 'Mobile', 1]] },
   { t: 'Document', for: ['document'], open: true, f: [['docTitle', 'Title', 1], ['docDate', 'Date'], ['docRef', 'Reference'], ['docBody', 'Text (blank line = new paragraph, “# ” = heading, “- ” = bullet)', 1, 'area', 10]] },
   { t: 'Meeting', for: ['minutes'], open: true, f: [['mtTitle', 'Meeting title', 1], ['mtDate', 'Date'], ['mtTime', 'Time'], ['mtPlace', 'Location', 1], ['mtChair', 'Chaired by'], ['mtScribe', 'Minutes taken by'], ['mtAttendees', 'Attendees (one per line)', 1, 'area', 3], ['mtAbsent', 'Apologies (one per line)', 1, 'area', 2], ['mtAgenda', 'Agenda (one item per line)', 1, 'area', 4], ['mtNotes', 'Discussion (blank line = new paragraph, “# ” = heading, “- ” = bullet)', 1, 'area', 6], ['mtDecisions', 'Decisions (one per line)', 1, 'area', 3], ['mtActions', 'Action items', 1, 'rows'], ['mtNext', 'Next meeting', 1]] },
   { t: 'Envelope', for: ['envelope'], open: true, f: [['envSize', 'Size', 0, 'select', [['DL', 'DL (220 × 110 mm)'], ['C5', 'C5 (229 × 162 mm)'], ['C4', 'C4 (324 × 229 mm)']]], ['envSender', 'Return address', 0, 'select', [['yes', 'Show'], ['no', 'Hide']]], ['envNote', 'Note above address (e.g. Confidential)', 1], ['recipientName', 'Recipient name', 1], ['recipientStreet', 'Street and number', 1], ['recipientCity', 'Postcode and city'], ['recipientCountry', 'Country']] },
+  { t: 'Business card', for: ['card'], open: true, f: [['cardSize', 'Size', 0, 'select', [['EU', '85 × 55 mm (EU)'], ['US', '3.5 × 2 in (US / India)']]], ['cardLayout', 'Print as', 0, 'select', [['single', 'Single card (print shop)'], ['sheet', 'A4 sheet of 10 (home printer)']]], ['cardTagline', 'Tagline on the front (optional)', 1]] },
   { t: 'Signature', for: ['signature'], open: true, f: [['sigLogo', 'Logo', 0, 'select', [['yes', 'Show'], ['no', 'Hide']]], ['sigNote', 'Small print (disclaimer, optional)', 1, 'area', 3]] },
   { t: 'Language', for: ['document', 'minutes'], f: [['lang', 'Document language', 0, 'select', [['en', 'English'], ['de', 'Deutsch']]]] },
 ];
@@ -80,7 +90,7 @@ const sta = {
   data: null,
   active: 'letterhead',
   saveTimer: null,
-  logos: null,   // { mark, word } as data: URIs so exported files are self-contained
+  logos: null,   // { mark, word, markW, wordW } as data: URIs so exported files are self-contained
   markRatio: 1,  // mark height / width, from its viewBox
   markPng: null, // PNG copy of the mark for email signatures (mail apps don't show SVG)
 };
@@ -101,8 +111,8 @@ async function loadDocLogos() {
     }
     return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
   };
-  const [mark, word] = await Promise.all([toUri('clover-x-mark-dark.svg'), toUri('clover-x-wordmark-dark.svg')]);
-  sta.logos = { mark, word };
+  const [mark, word, markW, wordW] = await Promise.all(['mark-dark', 'wordmark-dark', 'mark-white', 'wordmark-white'].map((f) => toUri(`clover-x-${f}.svg`)));
+  sta.logos = { mark, word, markW, wordW };
   return sta.logos;
 }
 
@@ -251,6 +261,55 @@ function buildEnvelope(d, m) {
   return sender + rec + stamp + '<div style="position:absolute;left:0;right:0;bottom:0;height:6px;background:#163944"></div>';
 }
 
+/** Front and back of a business card; on an A4 sheet, 2 × 5 cards with cut marks. */
+function buildCard(d, m) {
+  const { L, has, V, J, logo } = docHelpers(d, m);
+  const { card } = pageDims();
+  const { w, h } = card;
+  const pad = 20;
+
+  const front =
+    '<div style="position:absolute;inset:0;background:#163944"></div>' +
+    `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px">` +
+      `<div style="display:flex;align-items:center;gap:10px">${logo('markW', 34)}${logo('wordW', 104)}</div>` +
+      (has('cardTagline') ? `<div style="font-size:8.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#4FD1B2">${V('cardTagline')}</div>` : '') +
+    '</div>' +
+    '<div style="position:absolute;left:0;right:0;bottom:0;height:4px;background:#4FD1B2"></div>';
+
+  const contact = [[L.tel, V('phone')], [L.mob, V('mobile')], ['', V('email')], ['', V('website')]].filter((r) => r[1]);
+  const addr = [V('street'), J(['zip', 'city'], ' '), V('country')].filter(Boolean).join(', ');
+  const back =
+    '<div style="position:absolute;inset:0;background:#fff"></div>' +
+    '<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#4FD1B2"></div>' +
+    `<div style="position:absolute;right:${pad}px;top:${pad}px">${logo('mark', 24)}</div>` +
+    `<div style="position:absolute;left:${pad + 4}px;top:${pad}px;right:${pad + 34}px">` +
+      `<div style="${HEAD_FONT};font-size:15px;line-height:1.2;color:#163944">${V('name')}</div>` +
+      `<div style="font-size:9.5px;line-height:1.4;color:#4A6470;margin-top:3px">${J(['title', 'company'], ' · ')}</div>` +
+    '</div>' +
+    `<div style="position:absolute;left:${pad + 4}px;right:${pad}px;bottom:${pad - 4}px;font-size:9px;line-height:1.55;color:#2B4750">` +
+      contact.map(([l, v]) => `<div>${l ? `<span style="display:inline-block;width:11px;color:#8AA0A7">${l}</span>` : ''}${v}</div>`).join('') +
+      (addr ? `<div style="margin-top:3px;color:#4A6470">${addr}</div>` : '') +
+    '</div>';
+
+  if (d.cardLayout !== 'sheet') return [front, back];
+
+  // A4 sheet: cards edge to edge, centred, with cut marks outside the grid
+  const cols = 2;
+  const rows = 5;
+  const x0 = Math.round((794 - cols * w) / 2);
+  const y0 = Math.round((1123 - rows * h) / 2);
+  const line = (x, y, lw, lh) => `<div style="position:absolute;left:${x}px;top:${y}px;width:${lw}px;height:${lh}px;background:#8FA3A9"></div>`;
+  let marks = '';
+  for (let c = 0; c <= cols; c++) marks += line(x0 + c * w, y0 - 16, 1, 12) + line(x0 + c * w, y0 + rows * h + 4, 1, 12);
+  for (let r = 0; r <= rows; r++) marks += line(x0 - 16, y0 + r * h, 12, 1) + line(x0 + cols * w + 4, y0 + r * h, 12, 1);
+  const sheet = (inner) => {
+    let out = '';
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out += `<div style="position:absolute;left:${x0 + c * w}px;top:${y0 + r * h}px;width:${w}px;height:${h}px;overflow:hidden">${inner}</div>`;
+    return out + marks;
+  };
+  return [sheet(front), sheet(back)];
+}
+
 /** Email-safe signature: tables and inline styles only. */
 function buildSignature(d, m, logoSrc) {
   const { L, has, V, J } = docHelpers(d, m);
@@ -287,11 +346,22 @@ function signatureText() {
   ].filter(Boolean).join('\n');
 }
 
-const DOC_BUILDERS = { letterhead: buildLetterhead, document: buildDocument, minutes: buildMinutes, envelope: buildEnvelope };
-const buildDoc = (m) => DOC_BUILDERS[sta.active](sta.data, m);
+const DOC_BUILDERS = { letterhead: buildLetterhead, document: buildDocument, minutes: buildMinutes, envelope: buildEnvelope, card: buildCard };
+const buildDoc = (m) => [].concat(DOC_BUILDERS[sta.active](sta.data, m)); // always a list of pages
 const docType = () => DOC_TYPES.find((x) => x.id === sta.active);
 
+function docPagesHtml(m) {
+  const { w, h } = pageDims();
+  return buildDoc(m).map((p, i) => `<div class="doc-pg" style="width:${w}px;height:${h}px${i ? ';break-before:page' : ''}">${p}</div>`).join('');
+}
+
 function pageDims() {
+  if (sta.active === 'card') {
+    const k = sta.data.cardSize in CARD_SIZES ? sta.data.cardSize : 'EU';
+    const card = CARD_SIZES[k];
+    if (sta.data.cardLayout === 'sheet') return { w: 794, h: 1123, size: '210mm 297mm', cap: `A4 sheet, 10 cards of ${card.mm}`, card };
+    return { ...card, cap: `Business card, ${card.mm}`, card };
+  }
   if (sta.active === 'envelope') {
     const k = sta.data.envSize in ENV_SIZES ? sta.data.envSize : 'DL';
     return { ...ENV_SIZES[k], cap: `Envelope ${k}, ${ENV_SIZES[k].mm}` };
@@ -310,7 +380,7 @@ async function viewDocuments() {
 
   main().innerHTML = `
     <div class="page-head">
-      <div><h1>Documents</h1><p>Branded letterheads, documents, meeting minutes, envelopes and email signatures. Fill in the details — the preview updates as you type.</p></div>
+      <div><h1>Documents</h1><p>Branded letterheads, documents, meeting minutes, envelopes, business cards and email signatures. Fill in the details — the preview updates as you type.</p></div>
       <div class="toolbar-actions">
         <button class="btn btn-ghost" id="docSave">${svg('folder')}<span>Save to My files</span></button>
         <button class="btn btn-ghost" id="docHtml">${svg('download')}<span>Download HTML</span></button>
@@ -432,7 +502,9 @@ function renderDocPreview() {
   }
 
   const { w, h, cap } = pageDims();
-  stage.innerHTML = `<div class="doc-pgbox"><div class="doc-pgwrap"><div class="doc-pg" style="width:${w}px;height:${h}px">${buildDoc('preview')}</div></div><div class="doc-cap">${cap}</div></div>`;
+  const pages = buildDoc('preview');
+  const sides = pages.length > 1 ? ['Front', 'Back'] : [];
+  stage.innerHTML = pages.map((p, i) => `<div class="doc-pgbox"><div class="doc-pgwrap"><div class="doc-pg" style="width:${w}px;height:${h}px">${p}</div></div><div class="doc-cap">${cap}${sides[i] ? ` · ${sides[i]}` : ''}</div></div>`).join('');
   scaleDocPreview();
   const over = [...stage.querySelectorAll('[data-fit]')].some((el) => el.scrollHeight > el.clientHeight + 1);
   const status = $('#docStatus');
@@ -442,13 +514,15 @@ function renderDocPreview() {
 
 function scaleDocPreview() {
   const stage = $('#docStage');
-  const wrap = stage?.querySelector('.doc-pgwrap');
-  if (!wrap) return;
+  const wraps = stage ? [...stage.querySelectorAll('.doc-pgwrap')] : [];
+  if (!wraps.length) return;
   const { w, h } = pageDims();
-  const scale = Math.min(1, Math.max(0.25, (stage.clientWidth - 8) / w));
-  wrap.style.width = `${Math.round(w * scale)}px`;
-  wrap.style.height = `${Math.round(h * scale)}px`;
-  wrap.firstElementChild.style.transform = `scale(${scale})`;
+  const scale = Math.min(w < 500 ? 1.6 : 1, Math.max(0.25, (stage.clientWidth - 8) / w)); // enlarge small pages (cards)
+  for (const wrap of wraps) {
+    wrap.style.width = `${Math.round(w * scale)}px`;
+    wrap.style.height = `${Math.round(h * scale)}px`;
+    wrap.firstElementChild.style.transform = `scale(${scale})`;
+  }
 }
 
 let docStatusTimer;
@@ -471,6 +545,7 @@ function docFileName(ext) {
     document: slug(d.docTitle).slice(0, 40),
     minutes: slug(`${d.mtTitle} ${d.mtDate}`).slice(0, 40),
     envelope: slug(d.recipientName).slice(0, 40),
+    card: slug(d.name).slice(0, 40),
     signature: slug(d.name).slice(0, 40),
   }[sta.active] || '';
   return `${slug(d.company) || 'clover-x'}-${sta.active}${extra ? `-${extra}` : ''}.${ext}`;
@@ -485,12 +560,12 @@ async function standaloneDocHtml() {
     return `${head}<style>body{margin:0;background:#E9EFEF;font-family:Arial,Helvetica,sans-serif}.sig{background:#fff;max-width:600px;margin:32px auto 12px;padding:32px}p{max-width:600px;margin:0 auto;padding:0 8px;font-size:13px;color:#4A6470}</style></head>` +
       `<body><div class="sig">${buildSignature(sta.data, 'export', await docMarkPng())}</div><p>Select the signature above, copy it, and paste it into your mail app’s signature settings.</p></body></html>`;
   }
-  const { w, h, size } = pageDims();
+  const { size } = pageDims();
   return `${head}<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">` +
     `<style>*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0;background:#E9EFEF}${DOC_PAGE_CSS}` +
     '.print-btn{position:fixed;right:16px;top:16px;z-index:9;height:40px;padding:0 20px;border:0;border-radius:12px;background:#163944;color:#fff;font:600 14px \'Plus Jakarta Sans\',sans-serif;cursor:pointer}' +
     `@media screen{.doc-pg{margin:24px auto;box-shadow:0 2px 6px rgba(15,43,54,.12),0 12px 32px rgba(15,43,54,.1)}}@media print{body{background:#fff}.print-btn{display:none}.doc-pg{margin:0}@page{size:${size};margin:0}}</style></head>` +
-    `<body><button class="print-btn" onclick="window.print()">Print or save as PDF</button><div class="doc-pg" style="width:${w}px;height:${h}px">${buildDoc('export')}</div></body></html>`;
+    `<body><button class="print-btn" onclick="window.print()">Print or save as PDF</button>${docPagesHtml('export')}</body></html>`;
 }
 
 function downloadBlob(name, content, type) {
@@ -502,13 +577,13 @@ function downloadBlob(name, content, type) {
 }
 
 function printDoc() {
-  const { w, h, size } = pageDims();
+  const { size } = pageDims();
   let root = $('#print-root');
   if (!root) { root = Object.assign(document.createElement('div'), { id: 'print-root' }); document.body.append(root); }
   let pageStyle = $('#doc-page-style');
   if (!pageStyle) { pageStyle = Object.assign(document.createElement('style'), { id: 'doc-page-style' }); document.head.append(pageStyle); }
   pageStyle.textContent = `@page{size:${size};margin:0}`;
-  root.innerHTML = `<div class="doc-pg" style="width:${w}px;height:${h}px">${buildDoc('export')}</div>`;
+  root.innerHTML = docPagesHtml('export');
   document.body.classList.add('cx-printing');
   const done = () => { document.body.classList.remove('cx-printing'); root.innerHTML = ''; removeEventListener('afterprint', done); };
   addEventListener('afterprint', done);

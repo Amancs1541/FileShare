@@ -13,7 +13,7 @@ It has **zero npm dependencies**: you only need Node.js 18.15 or newer, or Docke
 | **Encryption** | Every file is encrypted at rest with AES-256-GCM and its own key. Video seeking and resumed downloads still work |
 | **Document passwords** | Lock any file with a password. The password becomes part of the encryption key, so not even the server can open the file without it |
 | **Password manager** | A personal vault for logins and secure notes, with a password generator, strength meter, weak/reused/old password checks, folders, favorites, and CSV import/export |
-| **Documents** | Clover-X branded letterheads, documents, meeting minutes, envelopes and email signatures with a live preview, print or save as PDF, download as HTML, or save to My files |
+| **Documents** | Clover-X branded letterheads, documents, meeting minutes, envelopes, business cards and email signatures with a live preview, print or save as PDF, download as HTML, or save to My files |
 | **Admin console** | Approve or reject requests, add users, change roles, disable accounts, reset passwords, set up Microsoft sign-in |
 
 ## Password manager
@@ -47,6 +47,7 @@ Open **Documents** in the sidebar and pick a type:
 | **Document** | A branded A4 page with title, date, reference, author and free text (blank line = new paragraph, `# ` = heading, `- ` = bullet) |
 | **Meeting minutes** | Date, time, location, chair, minute taker, attendees, apologies, agenda, discussion, decisions, action items (task / owner / due) and next meeting |
 | **Envelope** | DL, C5 or C4 envelope with return address, an optional note such as *Confidential*, and the recipient address |
+| **Business card** | Front (logo on brand colour, optional tagline) and back (name, title, phone, mobile, email, website, address). 85 × 55 mm or 3.5 × 2 in, as a single card for a print shop or an A4 sheet of 10 with cut marks for a home printer |
 | **Email signature** | A signature with logo, name, job title, phone, mobile, email, website, address and optional small print |
 
 - **Form:** company details are shared by every type. The A4 preview updates as you type.
@@ -54,7 +55,7 @@ Open **Documents** in the sidebar and pick a type:
 - **Language:** Document and meeting minutes labels are in English or German.
 - **Overflow warning:** a message appears if the text no longer fits on one page.
 - **Output:**
-  - **Print / Save as PDF** prints only the page at its true size (A4 or the envelope size).
+  - **Print / Save as PDF** prints only the page at its true size (A4, the envelope size or the card size).
   - **Download HTML** gives a self-contained file with the logos embedded.
   - **Save to My files** stores that file, encrypted, in a `Documents` folder.
   - **Copy signature** (Email signature only) copies it so you can paste it into Outlook, Gmail or another mail app's signature settings.
@@ -115,9 +116,12 @@ Settings come from environment variables or CLI flags. In Docker, put them in th
 
 ## Deploy to AWS (Ubuntu + Docker)
 
+The full walkthrough, including the AWS **Network ACL** settings and HTTPS troubleshooting, is in **[DEPLOY.md](DEPLOY.md)**.
+
 ### 1. Launch the server
 - **EC2 → Launch instance**: **Ubuntu 24.04 LTS**, `t3.small` or larger, 20 GB or more of storage. More storage means more room for files.
 - **Security group:** allow **22** (SSH, your IP only), **80** and **443** (HTTP/HTTPS, anywhere).
+- **Network ACL** of the subnet: inbound must also allow **80** and **443**. See [DEPLOY.md](DEPLOY.md#2b-network-acl-per-subnet--this-was-the-real-blocker).
 - **Static IP:** allocate an **Elastic IP** and associate it with the instance.
 - **Domain:** create a DNS **A record**, e.g. `share.clover-x.in`, pointing to that IP. HTTPS needs a domain.
 
@@ -157,6 +161,7 @@ bash setup.sh install --yes --mode sslip --admin-password 'S0mething-Strong'
 ### 3. Everyday operations
 ```bash
 ./setup.sh status      # containers, health, URL
+./setup.sh doctor      # explains why the site or HTTPS isn't reachable
 ./setup.sh logs        # live log
 ./setup.sh update      # git pull + rebuild (data kept)
 ./setup.sh backup      # data volume + .env -> ./backups (copy them off the server!)
