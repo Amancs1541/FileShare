@@ -388,10 +388,18 @@ preflight_ports() {
   open_firewall "${ports[@]}"
 }
 
+# Ask the app on its published host port; fall back to Docker's own healthcheck result.
+# (Avoids "docker compose exec", which hangs or fails on some Docker versions.)
+app_healthy() {
+  local port; port=$(env_get APP_PORT); port=${port##*:}
+  curl -fsS -m 3 "http://127.0.0.1:${port:-3000}/healthz" 2>/dev/null | grep -q ok && return 0
+  [[ $($SUDO docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' clover-x-file-share 2>/dev/null) == healthy ]]
+}
+
 wait_healthy() {
   info "Waiting for the app to start…"
   for _ in $(seq 1 45); do
-    if dc exec -T app wget -qO- http://127.0.0.1:3000/healthz 2>/dev/null | grep -q ok; then ok "App is healthy"; return 0; fi
+    if app_healthy; then ok "App is healthy"; return 0; fi
     sleep 2
   done
   dc logs --tail 40 app >&2 || true
@@ -483,7 +491,7 @@ cmd_status() {
   [[ -f $ENV_FILE ]] || die "Not installed yet — run ./setup.sh first."
   dc --profile https ps
   echo
-  if dc exec -T app wget -qO- http://127.0.0.1:3000/healthz 2>/dev/null | grep -q ok; then ok "App healthy"; else warn "App not responding"; fi
+  if app_healthy; then ok "App healthy"; else warn "App not responding"; fi
   printf '  URL:  %s\n' "$(app_url)"
   printf '  Data: %s\n' "$($SUDO docker system df -v 2>/dev/null | awk -v v="$VOLUME" '$1==v {print $NF}' || true) in volume $VOLUME"
 }
