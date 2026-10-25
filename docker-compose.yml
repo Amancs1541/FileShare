@@ -1,0 +1,45 @@
+# Clover-X File Share
+#
+#   Plain HTTP on port 3000 (testing / private network):
+#     docker compose up -d --build
+#
+#   Production with automatic HTTPS (needs a domain pointing at the server, ports 80 + 443 open):
+#     set DOMAIN, PUBLIC_URL and APP_PORT=127.0.0.1:3000 in .env, then
+#     docker compose --profile https up -d --build
+
+services:
+  app:
+    build: .
+    image: clover-x-file-share:latest
+    container_name: clover-x-file-share
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      PORT: 3000
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - cx-data:/data
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: clover-x-caddy
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the https profile}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  cx-data:       # database, encryption key, encrypted files — BACK THIS UP
+  caddy-data:    # TLS certificates
+  caddy-config:

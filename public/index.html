@@ -11,28 +11,75 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="/assets/style.css">
   <script>
-    // Apply saved theme before paint to avoid a flash.
     try { const t = localStorage.getItem('cx-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
   </script>
 </head>
 <body>
 
-  <!-- ============ Login (only when a PIN is set) ============ -->
-  <div id="login" class="login" hidden>
-    <form id="loginForm" class="login-card">
-      <img class="login-mark" src="/logo/clover-x-mark-white.svg" alt="">
-      <img class="login-word" src="/logo/clover-x-wordmark-white.svg" alt="Clover-X">
-      <p class="login-sub">This share is protected. Enter the PIN to continue.</p>
-      <input id="pinInput" type="password" inputmode="numeric" autocomplete="current-password" placeholder="••••" required>
-      <button class="btn btn-primary btn-block" type="submit">Unlock</button>
-      <p id="loginError" class="login-error" role="alert"></p>
-    </form>
+  <!-- ================= Auth ================= -->
+  <div id="auth" class="auth" hidden>
+    <div class="auth-side">
+      <img class="auth-watermark" src="/logo/clover-x-mark-white.svg" alt="">
+      <div class="auth-brand">
+        <img src="/logo/clover-x-mark-white.svg" alt="" class="auth-mark">
+        <img src="/logo/clover-x-wordmark-white.svg" alt="Clover-X" class="auth-word">
+      </div>
+      <div class="auth-pitch">
+        <h1>Your files.<br>Private by design.</h1>
+        <ul>
+          <li><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Every file encrypted with AES-256</li>
+          <li><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>A private space for every user</li>
+          <li><svg viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"/></svg>Share with people, on your terms</li>
+        </ul>
+      </div>
+      <span class="auth-foot">Clover-X File Share</span>
+    </div>
+
+    <div class="auth-main">
+      <div class="auth-card">
+        <div class="auth-card-brand">
+          <img class="only-light" src="/logo/clover-x-mark-dark.svg" alt="">
+          <img class="only-dark" src="/logo/clover-x-mark-white.svg" alt="">
+        </div>
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-auth-tab="signin" role="tab">Sign in</button>
+          <button class="tab" data-auth-tab="register" role="tab" id="registerTab">Request access</button>
+        </div>
+
+        <div id="authNotice" class="notice" hidden></div>
+
+        <form id="loginForm" class="form" data-auth-panel="signin">
+          <label class="field"><span>Username or email</span><input name="username" autocomplete="username" required autofocus></label>
+          <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+          <div id="msBlock" hidden>
+            <div class="divider"><span>or</span></div>
+            <a class="btn btn-ms btn-block" href="/auth/microsoft">
+              <svg viewBox="0 0 23 23" class="ms-logo"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
+              Sign in with Microsoft
+            </a>
+          </div>
+        </form>
+
+        <form id="registerForm" class="form" data-auth-panel="register" hidden>
+          <p class="muted small">Ask for an account. An administrator reviews every request before you can sign in.</p>
+          <div class="field-row">
+            <label class="field"><span>Full name</span><input name="displayName" autocomplete="name" required></label>
+            <label class="field"><span>Username</span><input name="username" autocomplete="username" pattern="[A-Za-z0-9._\-]{3,32}" title="3–32 letters, numbers, . _ -" required></label>
+          </div>
+          <label class="field"><span>Email</span><input name="email" type="email" autocomplete="email" required></label>
+          <label class="field"><span>Password</span><input name="password" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters with letters and numbers.</small></label>
+          <label class="field"><span>Why do you need access? <em>(optional)</em></span><textarea name="reason" rows="2" maxlength="500"></textarea></label>
+          <button class="btn btn-primary btn-block" type="submit">Send request</button>
+        </form>
+      </div>
+    </div>
   </div>
 
-  <!-- ============ App ============ -->
+  <!-- ================= App ================= -->
   <div id="app" class="app" hidden>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Clover-X File Share home">
+      <a class="brand" href="#/files" aria-label="Home">
         <img class="brand-mark only-light" src="/logo/clover-x-mark-dark.svg" alt="">
         <img class="brand-mark only-dark" src="/logo/clover-x-mark-white.svg" alt="">
         <img class="brand-word only-light" src="/logo/clover-x-wordmark-dark.svg" alt="Clover-X">
@@ -40,97 +87,54 @@
         <span class="brand-tag">File Share</span>
       </a>
       <div class="topbar-right">
-        <span id="hostBadge" class="host-badge" title="Server"><span class="dot"></span><span id="hostName">—</span></span>
         <button id="themeBtn" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
           <svg class="only-light" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
           <svg class="only-dark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         </button>
+        <button id="userBtn" class="user-btn" aria-label="Account menu">
+          <span id="userAvatar" class="avatar"></span>
+          <span class="user-meta"><strong id="userName"></strong><small id="userRole"></small></span>
+          <svg viewBox="0 0 24 24" class="caret"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
       </div>
     </header>
 
-    <main class="container">
-      <!-- Hero / connection card -->
-      <section class="hero">
-        <img class="hero-watermark" src="/logo/clover-x-mark-white.svg" alt="">
-        <div class="hero-text">
-          <span class="eyebrow">Local network · private</span>
-          <h1>Drop it here. Grab it anywhere.</h1>
-          <p>Any phone, tablet or laptop on the same Wi-Fi can open this address to send and receive files — nothing leaves your network.</p>
-          <div id="urlList" class="url-list"></div>
-        </div>
-        <div id="qrBox" class="qr-box" hidden>
-          <div id="qr" class="qr"></div>
-          <span>Scan to open on phone</span>
-        </div>
-      </section>
+    <div class="layout">
+      <nav class="sidebar" aria-label="Main">
+        <a class="nav" href="#/files" data-nav="files">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>My files</span>
+        </a>
+        <a class="nav" href="#/shared" data-nav="shared">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5a5 5 0 0 1 4.5 5"/></svg><span>Shared with me</span>
+        </a>
+        <a class="nav" href="#/requests" data-nav="requests">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4Z"/><path d="M8 10h8"/></svg><span>Requests</span><b id="reqBadge" class="badge" hidden></b>
+        </a>
+        <a class="nav admin-only" href="#/admin" data-nav="admin">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6Z"/><path d="m9 12 2 2 4-4"/></svg><span>Admin</span><b id="adminBadge" class="badge" hidden></b>
+        </a>
+        <a class="nav" href="#/account" data-nav="account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Account</span>
+        </a>
 
-      <!-- Files panel -->
-      <section id="panel" class="panel">
-        <div class="toolbar">
-          <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
-          <div class="toolbar-actions">
-            <label class="search">
-              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-              <input id="search" type="search" placeholder="Search this folder">
-            </label>
-            <button id="newFolderBtn" class="btn btn-ghost write-only">
-              <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5m-2.5-2.5h5"/></svg>
-              <span>New folder</span>
-            </button>
-            <div class="split write-only">
-              <button id="uploadBtn" class="btn btn-primary">
-                <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-                <span>Upload</span>
-              </button>
-              <button id="uploadMenuBtn" class="btn btn-primary split-caret" aria-label="More upload options">
-                <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-              <div id="uploadMenu" class="menu" hidden>
-                <button data-act="files">Upload files</button>
-                <button data-act="folder">Upload a folder</button>
-              </div>
-            </div>
-            <input id="fileInput" type="file" multiple hidden>
-            <input id="folderInput" type="file" webkitdirectory multiple hidden>
+        <div class="side-card">
+          <div class="side-secure">
+            <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <div><strong>Encrypted at rest</strong><small>AES-256-GCM</small></div>
+          </div>
+          <div id="connectBox" class="connect" hidden>
+            <small>Open on another device</small>
+            <button id="connectUrl" class="connect-url" title="Copy link"></button>
+            <div id="qr" class="qr" hidden></div>
           </div>
         </div>
+      </nav>
 
-        <div class="list-head">
-          <button class="col-name sort" data-sort="name">Name <i></i></button>
-          <button class="col-size sort" data-sort="size">Size <i></i></button>
-          <button class="col-date sort" data-sort="mtime">Modified <i></i></button>
-          <span class="col-act"></span>
-        </div>
-        <ul id="list" class="list"></ul>
-
-        <div id="empty" class="empty" hidden>
-          <div class="empty-art">
-            <img class="only-light" src="/logo/clover-x-mark-dark.svg" alt="">
-            <img class="only-dark" src="/logo/clover-x-mark-white.svg" alt="">
-          </div>
-          <h3 id="emptyTitle">This folder is empty</h3>
-          <p id="emptyText">Drag files anywhere on this page, or use the Upload button.</p>
-        </div>
-
-        <footer class="panel-foot">
-          <span id="summary"></span>
-          <span id="disk"></span>
-        </footer>
-
-        <div id="dropOverlay" class="drop-overlay" hidden>
-          <div class="drop-inner">
-            <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            <strong>Drop to upload</strong>
-            <span id="dropTarget">to Home</span>
-          </div>
-        </div>
-      </section>
-
-      <p class="credit">Clover-X File Share · runs entirely on your local network</p>
-    </main>
+      <main id="main" class="main"></main>
+    </div>
   </div>
 
-  <!-- Upload tray -->
+  <!-- upload tray -->
   <aside id="tray" class="tray" hidden>
     <header class="tray-head">
       <strong id="trayTitle">Uploading</strong>
@@ -143,33 +147,10 @@
     <ul id="trayList" class="tray-list"></ul>
   </aside>
 
-  <!-- Preview modal -->
-  <div id="preview" class="modal" hidden>
-    <div class="modal-backdrop" data-close></div>
-    <div class="modal-card preview-card" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
-      <header class="modal-head">
-        <strong id="previewTitle"></strong>
-        <div class="modal-head-actions">
-          <a id="previewDownload" class="btn btn-primary btn-sm" href="#">Download</a>
-          <button class="icon-btn sm" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        </div>
-      </header>
-      <div id="previewBody" class="preview-body"></div>
-    </div>
-  </div>
-
-  <!-- Dialog (prompt/confirm) -->
-  <div id="dialog" class="modal" hidden>
-    <div class="modal-backdrop" data-cancel></div>
-    <form id="dialogForm" class="modal-card dialog-card" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
-      <h3 id="dialogTitle"></h3>
-      <p id="dialogMsg"></p>
-      <input id="dialogInput" type="text" autocomplete="off">
-      <div class="dialog-actions">
-        <button type="button" class="btn btn-ghost" data-cancel>Cancel</button>
-        <button id="dialogOk" type="submit" class="btn btn-primary">OK</button>
-      </div>
-    </form>
+  <!-- generic modal host -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-backdrop" data-dismiss></div>
+    <div id="modalCard" class="modal-card" role="dialog" aria-modal="true"></div>
   </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
