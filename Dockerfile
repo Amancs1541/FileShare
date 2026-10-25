@@ -1,4 +1,4 @@
-# Clover-X File Share — zero npm dependencies, so the image is just Node + the app.
+# Clover-X Personal Management — zero npm dependencies, so the image is just Node + the app.
 FROM node:22-alpine
 
 ENV NODE_ENV=production \

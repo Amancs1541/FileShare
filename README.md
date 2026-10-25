@@ -1,6 +1,6 @@
-# Clover-X File Share
+# Clover-X Personal Management
 
-A self-hosted, multi-user file sharing server with Clover-X branding. Every user gets a private, encrypted space. Users can share files with each other, ask for access, and lock documents with a password. It also supports signing in with a Microsoft account.
+A self-hosted, multi-user file sharing server and password manager with Clover-X branding. Every user gets a private, encrypted space and their own password vault. Users can share files with each other, ask for access, and lock documents with a password. It also supports signing in with a Microsoft account.
 
 It has **zero npm dependencies**: you only need Node.js 18.15 or newer, or Docker.
 
@@ -12,7 +12,53 @@ It has **zero npm dependencies**: you only need Node.js 18.15 or newer, or Docke
 | **Sharing** | Share a file or folder with specific users (view and download only). Folder shares include everything inside |
 | **Encryption** | Every file is encrypted at rest with AES-256-GCM and its own key. Video seeking and resumed downloads still work |
 | **Document passwords** | Lock any file with a password. The password becomes part of the encryption key, so not even the server can open the file without it |
+| **Password manager** | A personal vault for logins and secure notes, with a password generator, strength meter, weak/reused/old password checks, folders, favorites, and CSV import/export |
+| **Documents** | Clover-X branded letterheads, documents, meeting minutes, envelopes and email signatures with a live preview, print or save as PDF, download as HTML, or save to My files |
 | **Admin console** | Approve or reject requests, add users, change roles, disable accounts, reset passwords, set up Microsoft sign-in |
+
+## Password manager
+
+Open **Passwords** in the sidebar. The first time, you choose a **vault password**. It is separate from your sign-in password, and Microsoft users need one too.
+
+- **Encryption:** the whole vault is encrypted with AES-256-GCM. The key is derived from the server key **and** your vault password, which is never stored.
+  - This means administrators and the server itself can't read it.
+  - A forgotten vault password can't be recovered. *Forgot your vault password?* deletes the vault so you can start again; your files aren't affected.
+- **Locking:** the vault locks after **15 minutes** without activity, when you sign out, when you click **Lock**, and when the server restarts.
+- **Items:**
+  - *Login* items have a username, password, website and notes; *Secure note* items hold free text.
+  - Each item can have a folder and can be marked as a favorite.
+  - The last 5 passwords of each login are kept as history.
+- **Generator:** sets length (8–64), character types, and can avoid look-alike characters such as `l 1 I O 0`. It uses the browser's secure random source.
+- **Health:** dashboard cards count **weak**, **reused** and **older than 1 year** passwords. Click a card to filter the list.
+- **Copying:** one click copies a username or password. On HTTPS the clipboard is cleared after 30 seconds.
+- **Import / export** (the settings button on the Passwords page):
+  - Import accepts CSV files exported from Chrome, Edge, Firefox, Bitwarden or LastPass.
+  - Export writes a plain-text CSV and asks for your vault password first.
+
+Vaults are stored in `DATA_DIR/vaults/` (inside the Docker volume) and are included in `./setup.sh backup`.
+
+## Documents
+
+Open **Documents** in the sidebar and pick a type:
+
+| Type | What you get |
+|---|---|
+| **Letterhead** | A blank branded A4 page with logo, contact details, footer and fold marks |
+| **Document** | A branded A4 page with title, date, reference, author and free text (blank line = new paragraph, `# ` = heading, `- ` = bullet) |
+| **Meeting minutes** | Date, time, location, chair, minute taker, attendees, apologies, agenda, discussion, decisions, action items (task / owner / due) and next meeting |
+| **Envelope** | DL, C5 or C4 envelope with return address, an optional note such as *Confidential*, and the recipient address |
+| **Email signature** | A signature with logo, name, job title, phone, mobile, email, website, address and optional small print |
+
+- **Form:** company details are shared by every type. The A4 preview updates as you type.
+- **Saved to your account:** your details are stored on the server, so they're there on any device you sign in from.
+- **Language:** Document and meeting minutes labels are in English or German.
+- **Overflow warning:** a message appears if the text no longer fits on one page.
+- **Output:**
+  - **Print / Save as PDF** prints only the page at its true size (A4 or the envelope size).
+  - **Download HTML** gives a self-contained file with the logos embedded.
+  - **Save to My files** stores that file, encrypted, in a `Documents` folder.
+  - **Copy signature** (Email signature only) copies it so you can paste it into Outlook, Gmail or another mail app's signature settings.
+- **Printing settings:** scale 100%, margins *None*, *Background graphics* on, *Headers and footers* off.
 
 ## Quick start (Windows / local)
 
@@ -49,7 +95,7 @@ Settings come from environment variables or CLI flags. In Docker, put them in th
 ## Microsoft sign-in (Entra ID)
 
 1. In **portal.azure.com**, go to **Microsoft Entra ID → App registrations → New registration**.
-2. Name the app *Clover-X File Share*. Under *Supported account types*, choose one:
+2. Name the app *Clover-X Personal Management*. Under *Supported account types*, choose one:
    - **Single tenant**: only your organisation.
    - **Multitenant + personal accounts**: anyone with a Microsoft account.
 3. **Redirect URI:** set the platform to *Web* and the value to `https://YOUR-DOMAIN/auth/microsoft/callback`.
@@ -75,69 +121,52 @@ Settings come from environment variables or CLI flags. In Docker, put them in th
 - **Static IP:** allocate an **Elastic IP** and associate it with the instance.
 - **Domain:** create a DNS **A record**, e.g. `share.clover-x.in`, pointing to that IP. HTTPS needs a domain.
 
-### 2. Install Docker
-```bash
-ssh -i your-key.pem ubuntu@YOUR-ELASTIC-IP
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker ubuntu && newgrp docker
-```
+### 2. Run the setup
 
-### 3. Copy the app to the server
-Use either git:
+**From your Windows PC (easiest):** double-click **`deploy.bat`**. It asks for three things:
+- the server's public IP
+- the SSH user (`ubuntu`)
+- your `.pem` key file
+
+It then uploads the project and runs the setup on the server.
+
+**Or directly on the server:**
 ```bash
 git clone https://github.com/YOUR-ACCOUNT/File-Share.git clover-x-share
 cd clover-x-share
-```
-or upload the folder from your PC (PowerShell):
-```powershell
-scp -i your-key.pem -r "D:\AFTER BCA STUDY\Github-enabled\Clover-X\File-Share" ubuntu@YOUR-ELASTIC-IP:~/clover-x-share
+bash setup.sh
 ```
 
-### 4. Configure
+`setup.sh` takes care of everything:
+- installs Docker and Docker Compose, and adds swap on small instances
+- detects the public IP
+- asks how people should reach the server (see below)
+- generates the encryption key and `.env`, and asks for the admin password and optional Microsoft settings
+- opens the firewall, builds, starts, and checks that the site is reachable from the internet
+
+**Address options:**
+1. **`https://13-233-45-67.sslip.io`** (recommended): a free HTTPS name built from your IP. No domain needed, and Microsoft sign-in works. Needs ports **80 and 443** open.
+2. **Your own domain** with HTTPS. Create the DNS A record first; the script checks it.
+3. **`http://YOUR-IP`**: plain HTTP. Not encrypted in transit, and no Microsoft sign-in.
+
+To run it without prompts:
 ```bash
-cp .env.example .env
-nano .env
+bash setup.sh install --yes --mode sslip --admin-password 'S0mething-Strong'
 ```
-Set at least these:
-```ini
-DOMAIN=share.clover-x.in
-PUBLIC_URL=https://share.clover-x.in
-TRUST_PROXY=1
-APP_PORT=127.0.0.1:3000
-ENCRYPTION_KEY=          # paste the output of: openssl rand -base64 32
-ADMIN_PASSWORD=<a strong password>
-```
-Save a copy of `ENCRYPTION_KEY` somewhere safe outside the server, for example a password manager.
 
-### 5. Start with automatic HTTPS
+### 3. Everyday operations
 ```bash
-docker compose --profile https up -d --build
-docker compose logs -f app        # Ctrl+C to stop following
-```
-Caddy gets a Let's Encrypt certificate automatically. Open `https://share.clover-x.in` and sign in as Admin.
-
-### No domain yet?
-You can run plain HTTP on the server's IP for testing:
-1. Set `APP_PORT=3000`, `TRUST_PROXY=0` and leave `PUBLIC_URL` empty.
-2. Open port **3000** in the security group.
-3. Run `docker compose up -d --build` and open `http://YOUR-IP:3000`.
-
-Plain HTTP isn't encrypted in transit, and Microsoft sign-in needs HTTPS.
-
-### Everyday operations
-```bash
-docker compose ps                                  # status
-docker compose logs -f app                         # live log
-git pull && docker compose --profile https up -d --build   # update
-docker compose --profile https down                # stop
-
-# backup (database + key + encrypted files)
-docker run --rm -v clover-x-share_cx-data:/data -v "$PWD":/backup alpine tar czf /backup/cx-backup-$(date +%F).tgz -C /data .
-
-# locked out of Admin? start once with RESET_ADMIN=1, then set it back to 0
+./setup.sh status      # containers, health, URL
+./setup.sh logs        # live log
+./setup.sh update      # git pull + rebuild (data kept)
+./setup.sh backup      # data volume + .env -> ./backups (copy them off the server!)
+./setup.sh restart | stop | start
+./setup.sh             # change address, admin password or Microsoft settings
 ```
 
-The volume name is `<folder>_cx-data`. Run `docker volume ls` to check it.
+Locked out of Admin? Set `RESET_ADMIN=1` in `.env`, run `./setup.sh start`, sign in, then set it back to `0`.
+
+The data lives in the Docker volume `clover-x_cx-data`.
 
 ## Security notes
 
@@ -156,8 +185,9 @@ lib/config.js        settings from env / flags
 lib/db.js            JSON database (data/db.json)
 lib/crypto-store.js  AES-256-GCM chunked file encryption, document passwords
 lib/auth.js          password hashing, sessions, Microsoft OIDC
+lib/vault.js         encrypted password vaults (data/vaults/)
 lib/http.js          HTTP helpers
-public/              web app (index.html, style.css, app.js)
+public/              web app (index.html, style.css, app.js, vault.js, stationery.js)
 logo/                Clover-X brand assets
 Dockerfile, docker-compose.yml, Caddyfile, .env.example
 ```

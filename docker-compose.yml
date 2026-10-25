@@ -1,4 +1,4 @@
-# Clover-X File Share
+# Clover-X Personal Management
 #
 #   Plain HTTP on port 3000 (testing / private network):
 #     docker compose up -d --build
@@ -6,6 +6,11 @@
 #   Production with automatic HTTPS (needs a domain pointing at the server, ports 80 + 443 open):
 #     set DOMAIN, PUBLIC_URL and APP_PORT=127.0.0.1:3000 in .env, then
 #     docker compose --profile https up -d --build
+#
+#   Or let ./setup.sh do all of it.
+
+# Fixed project name, so the data volume is always "clover-x_cx-data" whatever the folder is called.
+name: clover-x
 
 services:
   app:
@@ -29,7 +34,8 @@ services:
     restart: unless-stopped
     depends_on: [app]
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the https profile}
+      # Compose interpolates this even when the https profile is off, so it can't be a required variable.
+      DOMAIN: ${DOMAIN:-localhost}
     ports:
       - "80:80"
       - "443:443"

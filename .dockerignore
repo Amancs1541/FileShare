@@ -13,3 +13,7 @@ docker-compose.yml
 Caddyfile
 README.md
 DEPLOY.md
+backups
+deploy.bat
+deploy.local.cmd
+setup.sh

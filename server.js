@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * Clover-X File Share — multi-user, encrypted file sharing server. Zero npm dependencies.
+ * Clover-X Personal Management — multi-user, encrypted file sharing server. Zero npm dependencies.
  *
  *   node server.js              # http://localhost:3000, data in ./data
  *
@@ -22,12 +22,16 @@ const cfg = require('./lib/config');
 const { Store, newId } = require('./lib/db');
 const cs = require('./lib/crypto-store');
 const auth = require('./lib/auth');
+const { createVaultStore } = require('./lib/vault');
 const {
   UNSAFE_INLINE, mimeOf, HttpError, sendJSON, redirect, readJSON, parseCookies, addCookie, parseRange, contentDisposition, sendStatic,
 } = require('./lib/http');
 
 const SESSION_COOKIE = 'cx_session';
 const OIDC_COOKIE = 'cx_oidc';
+const VAULT_COOKIE = 'cx_vault';
+const VAULT_IDLE_MS = 15 * 60_000;     // vault locks after 15 min without activity…
+const VAULT_MAX_MS = 8 * 60 * 60_000;  // …and after 8 h regardless
 const PART_SUFFIX = '.cxpart';
 
 // ================================================================ boot
@@ -35,6 +39,7 @@ const PART_SUFFIX = '.cxpart';
 fs.mkdirSync(cfg.FILES_DIR, { recursive: true });
 const keyInfo = cs.initMasterKey({ envKey: cfg.ENCRYPTION_KEY, keyFile: cfg.KEY_FILE });
 const db = new Store(cfg.DB_FILE);
+const vaults = createVaultStore(path.join(cfg.DATA_DIR, 'vaults'));
 
 // ================================================================ helpers
 
@@ -63,6 +68,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [k, b] of buckets) if (b.reset < now) buckets.delete(k);
   for (const [k, t] of unlockTokens) if (t.exp < now) unlockTokens.delete(k);
+  for (const [k, s] of vaultSessions) if (now - s.lastUsed > VAULT_IDLE_MS || now - s.created > VAULT_MAX_MS) vaultSessions.delete(k);
 }, 60_000).unref();
 
 const VIRTUAL_IFACE = /vethernet|virtualbox|vmware|vbox|hyper-v|wsl|docker|loopback|tailscale|zerotier|vpn|^br-|^veth/i;
@@ -278,6 +284,8 @@ on('POST', '/api/auth/register', async (req, res) => {
 }, { public: true });
 
 on('POST', '/api/auth/logout', (req, res) => {
+  vaultSessions.delete(parseCookies(req.headers.cookie)[VAULT_COOKIE] || '');
+  addCookie(res, VAULT_COOKIE, '', { maxAge: 0, secure: isHttps(req) });
   addCookie(res, SESSION_COOKIE, '', { maxAge: 0, secure: isHttps(req) });
   sendJSON(res, 200, { ok: true });
 }, { public: true });
@@ -708,6 +716,202 @@ on('DELETE', /^\/api\/access-requests\/([\w-]+)$/, (req, res, { m }) => {
   sendJSON(res, 200, { ok: true });
 });
 
+// ---------------------------------------------------------------- password manager
+
+// token -> { userId, key, created, lastUsed }. In memory only: a restart locks every vault.
+const vaultSessions = new Map();
+
+function endVaultSessions(userId, except = null) {
+  for (const [t, s] of vaultSessions) if (s.userId === userId && t !== except) vaultSessions.delete(t);
+}
+
+function startVaultSession(req, res, key) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  const now = Date.now();
+  vaultSessions.set(token, { userId: req.user.id, key, created: now, lastUsed: now });
+  addCookie(res, VAULT_COOKIE, token, { maxAge: VAULT_MAX_MS / 1000, secure: isHttps(req) });
+  return token;
+}
+
+/** The unlocked vault key for this request, or 423 when the vault is locked. */
+function vaultKeyFor(req, { touch = true } = {}) {
+  const token = parseCookies(req.headers.cookie)[VAULT_COOKIE];
+  const s = token && vaultSessions.get(token);
+  const now = Date.now();
+  if (!s || s.userId !== req.user.id || now - s.lastUsed > VAULT_IDLE_MS || now - s.created > VAULT_MAX_MS) {
+    if (s) vaultSessions.delete(token);
+    throw new HttpError(423, 'Your password vault is locked', { code: 'VAULT_LOCKED' });
+  }
+  if (touch) s.lastUsed = now;
+  return s.key;
+}
+
+function vaultError(err) {
+  if (err.code === 'WRONG_PASSWORD') return new HttpError(403, err.message);
+  if (err.code === 'NO_VAULT') return new HttpError(404, 'You don’t have a password vault yet', { code: 'NO_VAULT' });
+  if (err.code === 'EXISTS') return new HttpError(409, err.message);
+  return err;
+}
+
+function cleanVaultItem(b, prev = null) {
+  const s = (v, max) => String(v ?? '').slice(0, max);
+  const now = Date.now();
+  const item = {
+    id: prev?.id || newId(),
+    type: b.type === 'note' ? 'note' : 'login',
+    title: s(b.title, 200).trim(),
+    username: s(b.username, 500),
+    password: s(b.password, 1000),
+    url: s(b.url, 2000).trim(),
+    notes: s(b.notes, 20000),
+    category: s(b.category, 60).trim(),
+    favorite: Boolean(b.favorite),
+    createdAt: prev?.createdAt || Number(b.createdAt) || now,
+    updatedAt: now,
+    passwordUpdatedAt: 0,
+    history: Array.isArray(prev?.history) ? prev.history : [],
+  };
+  item.passwordUpdatedAt = prev ? (prev.passwordUpdatedAt || prev.createdAt || now) : item.createdAt;
+  if (!item.title) throw new HttpError(400, 'Give the item a name');
+  if (prev && prev.password !== item.password) {
+    if (prev.password) item.history = [{ password: prev.password, changedAt: now }, ...item.history].slice(0, 5);
+    item.passwordUpdatedAt = now;
+  }
+  return item;
+}
+
+on('GET', '/api/vault/status', (req, res) => {
+  let unlocked = false;
+  try { vaultKeyFor(req, { touch: false }); unlocked = true; } catch { /* locked */ }
+  sendJSON(res, 200, { exists: vaults.exists(req.user.id), unlocked, autoLockMinutes: VAULT_IDLE_MS / 60_000 });
+});
+
+on('POST', '/api/vault/setup', async (req, res) => {
+  const { password } = await readJSON(req);
+  const problem = auth.passwordProblem(password);
+  if (problem) throw new HttpError(400, problem.replace('Password', 'Vault password'));
+  let key;
+  try { key = await vaults.create(req.user.id, password); } catch (err) { throw vaultError(err); }
+  startVaultSession(req, res, key);
+  log(req, '\x1b[35m🔑 vault created\x1b[0m');
+  sendJSON(res, 201, { ok: true });
+});
+
+on('POST', '/api/vault/unlock', async (req, res) => {
+  const { password } = await readJSON(req);
+  rateLimit(`vault:${req.user.id}`, 8, 5 * 60_000, 'Too many vault unlock attempts. Wait 5 minutes and try again.');
+  let key;
+  try { key = await vaults.unlock(req.user.id, password || ''); }
+  catch (err) { log(req, '\x1b[31mvault unlock failed\x1b[0m'); throw vaultError(err); }
+  startVaultSession(req, res, key);
+  sendJSON(res, 200, { ok: true });
+});
+
+// Re-confirm the vault password before sensitive actions (export) without changing the session.
+on('POST', '/api/vault/verify', async (req, res) => {
+  const { password } = await readJSON(req);
+  vaultKeyFor(req);
+  rateLimit(`vault:${req.user.id}`, 8, 5 * 60_000, 'Too many attempts. Wait 5 minutes and try again.');
+  try { await vaults.unlock(req.user.id, password || ''); } catch (err) { throw vaultError(err); }
+  sendJSON(res, 200, { ok: true });
+});
+
+on('POST', '/api/vault/lock', (req, res) => {
+  vaultSessions.delete(parseCookies(req.headers.cookie)[VAULT_COOKIE] || '');
+  addCookie(res, VAULT_COOKIE, '', { maxAge: 0, secure: isHttps(req) });
+  sendJSON(res, 200, { ok: true });
+});
+
+on('GET', '/api/vault/items', (req, res) => {
+  const key = vaultKeyFor(req);
+  try { sendJSON(res, 200, { items: vaults.read(req.user.id, key) }); } catch (err) { throw vaultError(err); }
+});
+
+on('POST', '/api/vault/items', async (req, res) => {
+  const b = await readJSON(req, 256 * 1024);
+  const key = vaultKeyFor(req);
+  const items = vaults.read(req.user.id, key);
+  const item = cleanVaultItem(b);
+  items.push(item);
+  vaults.write(req.user.id, key, items);
+  sendJSON(res, 201, { item });
+});
+
+on('PUT', /^\/api\/vault\/items\/([\w-]+)$/, async (req, res, { m }) => {
+  const b = await readJSON(req, 256 * 1024);
+  const key = vaultKeyFor(req);
+  const items = vaults.read(req.user.id, key);
+  const i = items.findIndex((x) => x.id === m[1]);
+  if (i < 0) throw new HttpError(404, 'Item not found');
+  items[i] = cleanVaultItem(b, items[i]);
+  vaults.write(req.user.id, key, items);
+  sendJSON(res, 200, { item: items[i] });
+});
+
+on('DELETE', /^\/api\/vault\/items\/([\w-]+)$/, (req, res, { m }) => {
+  const key = vaultKeyFor(req);
+  const items = vaults.read(req.user.id, key);
+  const next = items.filter((x) => x.id !== m[1]);
+  if (next.length === items.length) throw new HttpError(404, 'Item not found');
+  vaults.write(req.user.id, key, next);
+  sendJSON(res, 200, { ok: true });
+});
+
+on('POST', '/api/vault/import', async (req, res) => {
+  const b = await readJSON(req, 10 * 1024 * 1024);
+  const key = vaultKeyFor(req);
+  if (!Array.isArray(b.items) || !b.items.length) throw new HttpError(400, 'Nothing to import');
+  if (b.items.length > 5000) throw new HttpError(400, 'Import at most 5000 items at a time');
+  const items = vaults.read(req.user.id, key);
+  let added = 0, skipped = 0;
+  for (const raw of b.items) {
+    try { items.push(cleanVaultItem(raw)); added++; } catch { skipped++; }
+  }
+  vaults.write(req.user.id, key, items);
+  log(req, `vault import: ${added} added, ${skipped} skipped`);
+  sendJSON(res, 200, { added, skipped });
+});
+
+on('POST', '/api/vault/password', async (req, res) => {
+  const { current, next } = await readJSON(req);
+  const oldKey = vaultKeyFor(req);
+  rateLimit(`vault:${req.user.id}`, 8, 5 * 60_000, 'Too many attempts. Wait 5 minutes and try again.');
+  try { await vaults.unlock(req.user.id, current || ''); } catch (err) { throw vaultError(err); }
+  const problem = auth.passwordProblem(next);
+  if (problem) throw new HttpError(400, problem.replace('Password', 'Vault password'));
+  const key = await vaults.changePassword(req.user.id, oldKey, next);
+  endVaultSessions(req.user.id);
+  startVaultSession(req, res, key);
+  log(req, 'vault password changed');
+  sendJSON(res, 200, { ok: true });
+});
+
+// Forgot the vault password: the only way out is to wipe the vault (it can't be decrypted without it).
+on('POST', '/api/vault/reset', async (req, res) => {
+  const { confirm } = await readJSON(req);
+  if (confirm !== 'DELETE') throw new HttpError(400, 'Type DELETE to confirm');
+  vaults.remove(req.user.id);
+  endVaultSessions(req.user.id);
+  addCookie(res, VAULT_COOKIE, '', { maxAge: 0, secure: isHttps(req) });
+  log(req, '\x1b[31mvault reset (all items deleted)\x1b[0m');
+  sendJSON(res, 200, { ok: true });
+});
+
+// ---------------------------------------------------------------- documents (stationery details)
+
+on('GET', '/api/stationery', (req, res) => {
+  sendJSON(res, 200, { data: db.data.stationery?.[req.user.id] || null });
+});
+
+on('PUT', '/api/stationery', async (req, res) => {
+  const b = await readJSON(req, 256 * 1024);
+  if (!b.data || typeof b.data !== 'object' || Array.isArray(b.data)) throw new HttpError(400, 'Invalid data');
+  db.data.stationery ||= {};
+  db.data.stationery[req.user.id] = b.data;
+  db.save();
+  sendJSON(res, 200, { ok: true });
+});
+
 // ---------------------------------------------------------------- admin
 
 on('GET', '/api/admin/users', (req, res) => {
@@ -763,9 +967,12 @@ on('DELETE', /^\/api\/admin\/users\/([\w-]+)$/, async (req, res, { m }) => {
   db.data.users = db.users.filter((x) => x.id !== u.id);
   db.data.shares = db.shares.filter((s) => s.ownerId !== u.id && s.granteeId !== u.id);
   db.data.requests = db.requests.filter((r) => r.ownerId !== u.id && r.requesterId !== u.id);
+  if (db.data.stationery) delete db.data.stationery[u.id];
   db.save();
   await fsp.rm(userRoot(u.id), { recursive: true, force: true });
-  log(req, `admin: deleted user ${u.username} and their files`);
+  vaults.remove(u.id);
+  endVaultSessions(u.id);
+  log(req, `admin: deleted user ${u.username}, their files and password vault`);
   sendJSON(res, 200, { ok: true });
 }, { admin: true });
 
@@ -964,7 +1171,7 @@ server.on('listening', async () => {
   const [main, ...others] = lanAddresses();
   const ms = msConfig();
   console.log('');
-  console.log(`  ${teal('✤')}  ${bold('Clover-X File Share')} is running`);
+  console.log(`  ${teal('✤')}  ${bold('Clover-X Personal Management')} is running`);
   console.log('');
   if (cfg.PUBLIC_URL) console.log(`     Public:    ${teal(bold(cfg.PUBLIC_URL))}`);
   console.log(`     Local:     ${teal(`http://localhost:${port}`)}`);

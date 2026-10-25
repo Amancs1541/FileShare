@@ -3,3 +3,5 @@ data/
 .env
 *.log
 node_modules/
+backups/
+deploy.local.cmd

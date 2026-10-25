@@ -1,7 +1,7 @@
 {
   "name": "clover-x-file-share",
   "version": "2.0.0",
-  "description": "Clover-X multi-user encrypted file sharing server with Microsoft sign-in",
+  "description": "Clover-X Personal Management — encrypted file sharing and password manager with Microsoft sign-in",
   "main": "server.js",
   "private": true,
   "scripts": {

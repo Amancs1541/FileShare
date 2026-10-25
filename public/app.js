@@ -1,6 +1,6 @@
 'use strict';
 
-/* Clover-X File Share — front-end (vanilla JS, no build step) */
+/* Clover-X Personal Management — front-end (vanilla JS, no build step) */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -313,6 +313,7 @@ function authNotice(type, html) {
 async function showAuth() {
   $('#app').hidden = true;
   $('#tray').hidden = true;
+  if (typeof sta !== 'undefined') sta.data = null; // stationery.js: never show one user's details to the next
   activeModal?.close(null);
   $('#auth').hidden = false;
   try { state.authConfig = await api('/api/auth/config', { quiet401: true }); } catch { state.authConfig = {}; }
@@ -365,6 +366,7 @@ async function logout() {
   await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
   state.me = null;
   state.unlock.clear();
+  if (typeof vault !== 'undefined') { vault.items = []; clearTimeout(vault.lockTimer); } // vault.js
   location.hash = '';
   showAuth();
 }
@@ -479,6 +481,8 @@ async function route() {
       return openItem(ownerId, rest.join('/'));
     }
     case 'shared': return viewShared();
+    case 'vault': return viewVault();
+    case 'documents': return viewDocuments();
     case 'requests': return viewRequests();
     case 'admin':
       if (state.me.role !== 'admin') { location.hash = '#/files'; return; }
@@ -1294,7 +1298,7 @@ async function viewAdminSettings() {
           <h2 style="font-size:15px">Set up in Azure (5 minutes)</h2>
           <ol class="steps">
             <li>Open <b>portal.azure.com → Microsoft Entra ID → App registrations → New registration</b>.</li>
-            <li>Name it <b>Clover-X File Share</b>. Pick who can sign in (single tenant for your organisation only).</li>
+            <li>Name it <b>Clover-X Personal Management</b>. Pick who can sign in (single tenant for your organisation only).</li>
             <li>Redirect URI: platform <b>Web</b>, value:
               <div class="copy-line" style="margin:6px 0"><span class="code">${esc(redirect)}</span><button class="icon-btn sm" type="button" data-copy="${esc(redirect)}" title="Copy">${svg('copy')}</button></div>
               Microsoft requires <b>https://</b> except for <span class="code">http://localhost</span>.</li>
