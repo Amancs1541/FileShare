@@ -1,0 +1,15 @@
+{
+  "name": "clover-x-file-share",
+  "version": "1.0.0",
+  "description": "Clover-X branded file sharing server for your local network",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "start:pin": "node server.js --pin 1234",
+    "start:readonly": "node server.js --readonly"
+  },
+  "engines": {
+    "node": ">=18.15"
+  }
+}
